@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	_ "github.com/go-sql-driver/mysql"
 	"os"
 	"strings"
 	"time"
@@ -15,7 +16,6 @@ type MySqlBackup struct {
 	Host     string
 	Port     string
 	Database string
-	Output   string
 }
 
 func (m MySqlBackup) Dump(ctx context.Context, opts ...DumpDbOpts) (string, error) {
@@ -30,10 +30,7 @@ func (m MySqlBackup) Dump(ctx context.Context, opts ...DumpDbOpts) (string, erro
 	defer db.Close()
 
 	// pick filename if none
-	output := m.Output
-	if output == "" {
-		output = fmt.Sprintf("%s_%s.sql", m.Database, time.Now().Format("20060102_150405"))
-	}
+	output := fmt.Sprintf("%s_%s.sql", m.Database, time.Now().Format("20060102_150405"))
 
 	outfile, err := os.Create(output)
 	if err != nil {

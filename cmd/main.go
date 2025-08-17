@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"ez-snapshot/internal/deps"
+	"ez-snapshot/internal/usecase"
 	"fmt"
 
 	"github.com/c-bata/go-prompt"
@@ -20,11 +22,17 @@ func main() {
 		{
 			Name: "backup",
 			Run: func(ctx context.Context) error {
-				// here you would call your BackupDatabaseUseCase.Execute(ctx)
 				fmt.Println("Running database backup...")
-				// result, err := uc.Execute(ctx)
-				// if err != nil { return err }
-				// fmt.Println("Backup saved at:", result.Path)
+				uc := usecase.NewBackupDatabaseUseCase(
+					deps.NewBackupRepo(),
+					deps.NewStorageRepo(),
+					deps.NewLoggerRepo(),
+				)
+				result, err := uc.Execute(ctx)
+				if err != nil {
+					return err
+				}
+				fmt.Println(result)
 				return nil
 			},
 		},
