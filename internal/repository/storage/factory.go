@@ -1,12 +1,10 @@
 package storage
 
-func New(opts ...Opts) Repository {
+import (
+	"context"
+	"ez-snapshot/internal/config"
+)
 
-	opt := storageOpts{}
-
-	for _, fn := range opts {
-		fn(&opt)
-	}
-
-	return NewAwsS3Impl()
+func New(_ context.Context, cfg *config.RCloneConfig) Repository {
+	return newRCloneImpl(cfg.Host, cfg.Fs, cfg.Remote)
 }

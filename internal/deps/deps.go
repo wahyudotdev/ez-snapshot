@@ -1,13 +1,13 @@
 package deps
 
 import (
+	"context"
 	"ez-snapshot/internal/config"
 	"ez-snapshot/internal/repository/backup"
-	"ez-snapshot/internal/repository/logger"
 	"ez-snapshot/internal/repository/storage"
 )
 
-func NewBackupRepo() backup.Repository {
+func NewBackupRepo(_ context.Context) backup.Repository {
 	cfg, err := config.LoadMySQLConfig()
 	if err != nil {
 		panic(err)
@@ -23,10 +23,13 @@ func NewBackupRepo() backup.Repository {
 	)
 }
 
-func NewStorageRepo() storage.Repository {
-	return storage.New()
-}
-
-func NewLoggerRepo() logger.Repository {
-	return logger.New()
+func NewStorageRepo(ctx context.Context) storage.Repository {
+	cfg, err := config.LoadRCloneConfig()
+	if err != nil {
+		panic(err)
+	}
+	return storage.New(
+		ctx,
+		cfg,
+	)
 }

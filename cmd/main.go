@@ -24,15 +24,13 @@ func main() {
 			Run: func(ctx context.Context) error {
 				fmt.Println("Running database backup...")
 				uc := usecase.NewBackupDatabaseUseCase(
-					deps.NewBackupRepo(),
-					deps.NewStorageRepo(),
-					deps.NewLoggerRepo(),
+					deps.NewBackupRepo(ctx),
+					deps.NewStorageRepo(ctx),
 				)
-				result, err := uc.Execute(ctx)
+				err := uc.Execute(ctx)
 				if err != nil {
 					return err
 				}
-				fmt.Println(result)
 				return nil
 			},
 		},
@@ -48,6 +46,23 @@ func main() {
 			Run: func(ctx context.Context) error {
 				fmt.Println("Bye 👋")
 				return fmt.Errorf("exit")
+			},
+		},
+		{
+			Name: "list",
+			Run: func(ctx context.Context) error {
+				fmt.Println("Listing databases...")
+				uc := usecase.NewListDatabaseUseCase(deps.NewStorageRepo(ctx))
+				list, err := uc.Execute(ctx)
+				if err != nil {
+					return err
+				}
+
+				for i, d := range list {
+					fmt.Printf("[%d]: %s\n", i, d.Name)
+				}
+
+				return nil
 			},
 		},
 	}
