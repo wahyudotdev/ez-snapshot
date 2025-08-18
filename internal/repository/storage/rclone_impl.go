@@ -59,12 +59,12 @@ func (rc *rCloneImpl) Upload(ctx context.Context, key string, r io.Reader) (stri
 }
 
 func (rc *rCloneImpl) Download(ctx context.Context, key string) (io.ReadCloser, error) {
-	endpoint := rc.host + "/operations/downloadfile"
+	endpoint := rc.host + "/operations/publiclink"
 	values := url.Values{}
 	values.Set("fs", rc.fs)
 	values.Set("remote", key)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"?"+values.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint+"?"+values.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -73,14 +73,42 @@ func (rc *rCloneImpl) Download(ctx context.Context, key string) (io.ReadCloser, 
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		return nil, fmt.Errorf("publiclink failed: %s", string(b))
+	}
+
+	var result struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if result.URL == "" {
+		return nil, fmt.Errorf("publiclink returned empty url")
+	}
+
+	// Now fetch the actual file using the signed URL
+	fileReq, err := http.NewRequestWithContext(ctx, "GET", result.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	fileResp, err := rc.client.Do(fileReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if fileResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(fileResp.Body)
+		fileResp.Body.Close()
 		return nil, fmt.Errorf("download failed: %s", string(b))
 	}
 
-	return resp.Body, nil // caller must Close()
+	return fileResp.Body, nil // caller must Close()
 }
 
 func (rc *rCloneImpl) Delete(ctx context.Context, key string) error {

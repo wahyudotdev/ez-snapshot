@@ -51,11 +51,16 @@ func main() {
 		{
 			Name: "list",
 			Run: func(ctx context.Context) error {
-				fmt.Println("Listing databases...")
+				fmt.Println("Listing backups...")
 				uc := usecase.NewListDatabaseUseCase(deps.NewStorageRepo(ctx))
 				list, err := uc.Execute(ctx)
 				if err != nil {
 					return err
+				}
+
+				if len(list) == 0 {
+					fmt.Println("No backup(s) found")
+					return nil
 				}
 
 				for i, d := range list {
