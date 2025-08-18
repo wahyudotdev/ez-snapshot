@@ -17,6 +17,10 @@ type Command struct {
 
 func main() {
 	ctx := context.Background()
+	depUc := usecase.NewDependencyChecker(deps.NewStorageRepo(ctx))
+	if err := depUc.Check(); err != nil {
+		log.Fatal(err)
+	}
 	// define available commands
 	commands := []Command{
 		{
@@ -85,7 +89,7 @@ func main() {
 		return prompt.FilterHasPrefix(s, d.GetWordBeforeCursor(), true)
 	}
 
-	fmt.Println("Welcome to MySQL Backup CLI (type 'exit' to quit)")
+	fmt.Println("Welcome EZ-Snapshot CLI (type 'exit' to quit)")
 	for {
 		input := prompt.Input("> ", completer)
 
