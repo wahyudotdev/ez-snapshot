@@ -4,3 +4,8 @@ mysql:
   username: "root"
   password: "password"
   database: "db"
+
+rclone:
+  host: "http://localhost:5572"
+  fs: "s3:mybucket"
+  remote: "db-backup"

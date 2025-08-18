@@ -5,6 +5,7 @@ import (
 	"ez-snapshot/internal/deps"
 	"ez-snapshot/internal/usecase"
 	"fmt"
+	"strconv"
 
 	"github.com/c-bata/go-prompt"
 	log "github.com/sirupsen/logrus"
@@ -41,8 +42,45 @@ func main() {
 		{
 			Name: "restore",
 			Run: func(ctx context.Context) error {
+				fmt.Println("Listing backups...")
+				listDbUc := usecase.NewListDatabaseUseCase(deps.NewStorageRepo(ctx))
+				list, err := listDbUc.Execute(ctx)
+				if err != nil {
+					return err
+				}
+
+				if len(list) == 0 {
+					fmt.Println("No backup(s) found")
+					return nil
+				}
+
+				for i, d := range list {
+					fmt.Printf("[%d]: %s\n", i, d.Name)
+				}
+
+				completer := func(d prompt.Document) []prompt.Suggest {
+					var s []prompt.Suggest
+					for i, _ := range list {
+						s = append(s, prompt.Suggest{Text: strconv.Itoa(i)})
+					}
+					return prompt.FilterHasPrefix(s, d.GetWordBeforeCursor(), true)
+				}
+
+				input := prompt.Input("Select backup number >", completer)
+
+				index, err := strconv.Atoi(input)
+				if err != nil {
+					return err
+				}
+
+				if index < 0 || index > len(list) {
+					return fmt.Errorf("invalid backup number")
+				}
+
+				backupKey := list[index].Path
+
 				uc := usecase.NewRestoreDatabaseUseCase(deps.NewBackupRepo(ctx), deps.NewStorageRepo(ctx))
-				if err := uc.Execute(ctx, "db-backup/ikk_20250818_141543.tar.gz"); err != nil {
+				if err := uc.Execute(ctx, backupKey); err != nil {
 					return err
 				}
 
@@ -86,7 +124,7 @@ func main() {
 	}
 
 	completer := func(d prompt.Document) []prompt.Suggest {
-		s := []prompt.Suggest{}
+		var s []prompt.Suggest
 		for _, c := range commands {
 			s = append(s, prompt.Suggest{Text: c.Name})
 		}
