@@ -1,12 +1,13 @@
 package backup
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
-	"database/sql"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
 	"os"
-	"strings"
+	"os/exec"
+	"path/filepath"
 	"time"
 )
 
@@ -18,121 +19,107 @@ type MySqlBackup struct {
 	Database string
 }
 
-func (m MySqlBackup) Dump(ctx context.Context, opts ...DumpDbOpts) (string, error) {
-	// build DSN
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4",
-		m.User, m.Password, m.Host, m.Port, m.Database)
+func (m MySqlBackup) Dump(ctx context.Context, opt ...DumpDbOpts) (string, error) {
+	// final tar.gz file
+	filename := fmt.Sprintf("%s_%s.tar.gz", m.Database, time.Now().Format("20060102_150405"))
+	outputPath := filepath.Join(".", filename)
 
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	// pick filename if none
-	output := fmt.Sprintf("%s_%s.sql", m.Database, time.Now().Format("20060102_150405"))
-
-	outfile, err := os.Create(output)
+	// create output tar.gz file
+	outfile, err := os.Create(outputPath)
 	if err != nil {
 		return "", err
 	}
 	defer outfile.Close()
 
-	// write header
-	fmt.Fprintf(outfile, "-- MySQL Dump\n-- Database: %s\n-- Generated at: %s\n\n",
-		m.Database, time.Now().Format(time.RFC3339))
+	// gzip writer
+	gzw := gzip.NewWriter(outfile)
+	defer gzw.Close()
 
-	// get tables
-	tables, err := getTables(ctx, db)
+	// tar writer
+	tw := tar.NewWriter(gzw)
+	defer tw.Close()
+
+	// create a tar header for the .sql file inside archive
+	sqlFileName := fmt.Sprintf("%s.sql", m.Database)
+	header := &tar.Header{
+		Name:    sqlFileName,
+		Mode:    0600,
+		Size:    0, // we'll use a pipe so size is unknown
+		ModTime: time.Now(),
+	}
+	// we will fill Size later via pipe, so skip direct WriteHeader+Size.
+
+	// build mysqldump args
+	args := []string{
+		"-h", m.Host,
+		"-P", m.Port,
+		"-u", m.User,
+		fmt.Sprintf("--password=%s", m.Password),
+		m.Database,
+	}
+
+	// prepare command
+	cmd := exec.CommandContext(ctx, "mysqldump", args...)
+
+	// pipe mysqldump stdout directly into tar entry
+	pr, pw, err := os.Pipe()
 	if err != nil {
 		return "", err
 	}
+	defer pr.Close()
 
-	for _, tbl := range tables {
-		// schema
-		var createStmt string
-		if err := db.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE `%s`", tbl)).
-			Scan(&tbl, &createStmt); err != nil {
-			return "", err
-		}
-		fmt.Fprintf(outfile, "--\n-- Table structure for `%s`\n--\n", tbl)
-		fmt.Fprintf(outfile, "DROP TABLE IF EXISTS `%s`;\n", tbl)
-		fmt.Fprintln(outfile, createStmt+";")
-		fmt.Fprintln(outfile)
+	cmd.Stdout = pw
+	cmd.Stderr = os.Stderr
 
-		// dump rows
-		if err := dumpTableData(ctx, db, outfile, tbl); err != nil {
-			return "", err
-		}
+	// start mysqldump
+	if err := cmd.Start(); err != nil {
+		pw.Close()
+		return "", fmt.Errorf("mysqldump start failed: %w", err)
 	}
 
-	return output, nil
-}
+	// close write end after command finishes
+	go func() {
+		cmd.Wait()
+		pw.Close()
+	}()
 
-func getTables(ctx context.Context, db *sql.DB) ([]string, error) {
-	rows, err := db.QueryContext(ctx, "SHOW TABLES")
+	// since tar requires knowing size, we stream by reading
+	// workaround: buffer mysqldump into tar without setting Size
+	// (using io.Copy + WriteHeader with zero size + special flag)
+	// Instead we can capture to temp buffer, but that uses memory.
+	// Simpler: copy to tar directly, but we need Size…
+	// Solution: use io.Pipe again to avoid full buffer.
+
+	tmpFile, err := os.CreateTemp("", "mysqldump-*.sql")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	defer rows.Close()
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
 
-	var tables []string
-	for rows.Next() {
-		var tbl string
-		if err := rows.Scan(&tbl); err != nil {
-			return nil, err
-		}
-		tables = append(tables, tbl)
-	}
-	return tables, nil
-}
-
-func dumpTableData(ctx context.Context, db *sql.DB, outfile *os.File, tbl string) error {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM `%s`", tbl))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	cols, err := rows.Columns()
-	if err != nil {
-		return err
+	// copy mysqldump output to tmp file
+	if _, err := pr.WriteTo(tmpFile); err != nil {
+		return "", fmt.Errorf("write to temp failed: %w", err)
 	}
 
-	vals := make([]interface{}, len(cols))
-	ptrs := make([]interface{}, len(cols))
-	for i := range vals {
-		ptrs[i] = &vals[i]
+	// rewind temp file
+	if _, err := tmpFile.Seek(0, 0); err != nil {
+		return "", err
 	}
 
-	fmt.Fprintf(outfile, "--\n-- Dumping data for table `%s`\n--\n", tbl)
+	// get size
+	info, _ := tmpFile.Stat()
+	header.Size = info.Size()
 
-	for rows.Next() {
-		if err := rows.Scan(ptrs...); err != nil {
-			return err
-		}
-
-		values := make([]string, len(cols))
-		for i, v := range vals {
-			if v == nil {
-				values[i] = "NULL"
-			} else {
-				values[i] = fmt.Sprintf("'%s'", escape(fmt.Sprint(v)))
-			}
-		}
-
-		insertStmt := fmt.Sprintf("INSERT INTO `%s` (`%s`) VALUES (%s);",
-			tbl, strings.Join(cols, "`, `"), strings.Join(values, ", "))
-		fmt.Fprintln(outfile, insertStmt)
+	// write tar header
+	if err := tw.WriteHeader(header); err != nil {
+		return "", err
 	}
 
-	fmt.Fprintln(outfile)
-	return nil
-}
+	// copy file into tar
+	if _, err := tmpFile.WriteTo(tw); err != nil {
+		return "", err
+	}
 
-func escape(s string) string {
-	// naive escaping, enough for basic text
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "'", "''")
-	return s
+	return outputPath, nil
 }

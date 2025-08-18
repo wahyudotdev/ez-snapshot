@@ -4,13 +4,11 @@ go 1.24.4
 
 require (
 	github.com/c-bata/go-prompt v0.2.6
-	github.com/go-sql-driver/mysql v1.9.3
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.20.1
 )
 
 require (
-	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
