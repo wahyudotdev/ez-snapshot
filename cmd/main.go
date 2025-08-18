@@ -41,7 +41,11 @@ func main() {
 		{
 			Name: "restore",
 			Run: func(ctx context.Context) error {
-				fmt.Println("Running database restore...")
+				uc := usecase.NewRestoreDatabaseUseCase(deps.NewBackupRepo(ctx), deps.NewStorageRepo(ctx))
+				if err := uc.Execute(ctx, "db-backup/ikk_20250818_141543.tar.gz"); err != nil {
+					return err
+				}
+
 				return nil
 			},
 		},

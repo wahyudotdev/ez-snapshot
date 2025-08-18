@@ -2,12 +2,15 @@ package backup
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -122,4 +125,116 @@ func (m MySqlBackup) Dump(ctx context.Context) (string, error) {
 	}
 
 	return outputPath, nil
+}
+
+func (m MySqlBackup) Restore(ctx context.Context, reader io.ReadCloser) error {
+	defer reader.Close()
+
+	// wrap with gzip
+	gzr, err := gzip.NewReader(reader)
+	if err != nil {
+		return fmt.Errorf("failed to open gzip: %w", err)
+	}
+	defer gzr.Close()
+
+	// wrap with tar
+	tr := tar.NewReader(gzr)
+
+	// find first .sql file in archive
+	var sqlPipeReader, sqlPipeWriter = io.Pipe()
+
+	go func() {
+		defer sqlPipeWriter.Close()
+
+		for {
+			hdr, err := tr.Next()
+			if err != nil {
+				break // end of tar
+			}
+
+			if filepath.Ext(hdr.Name) == ".sql" {
+				// copy SQL content into pipe
+				if _, err := io.Copy(sqlPipeWriter, tr); err != nil {
+					sqlPipeWriter.CloseWithError(fmt.Errorf("failed to copy sql content: %w", err))
+					return
+				}
+				break
+			}
+		}
+	}()
+
+	// prepare mysql restore command
+	args := []string{
+		"-h", m.Host,
+		"-P", m.Port,
+		"-u", m.User,
+		fmt.Sprintf("--password=%s", m.Password),
+		m.Database,
+	}
+
+	cmd := exec.CommandContext(ctx, "mysql", args...)
+	cmd.Stdin = sqlPipeReader
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("mysql restore failed: %w", err)
+	}
+
+	return nil
+}
+
+func (m MySqlBackup) DropAllTables(ctx context.Context) error {
+	// Step 1: get list of tables
+	args := []string{
+		"-h", m.Host,
+		"-P", m.Port,
+		"-u", m.User,
+		fmt.Sprintf("--password=%s", m.Password),
+		"-N", "-e", "SHOW TABLES", // -N removes column header
+		m.Database,
+	}
+
+	cmd := exec.CommandContext(ctx, "mysql", args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to list tables: %w", err)
+	}
+
+	// Step 2: parse table names
+	tables := strings.Fields(out.String())
+	if len(tables) == 0 {
+		return nil // nothing to drop
+	}
+
+	// Step 3: build DROP statements ignoring foreign key constraints
+	var dropSQL strings.Builder
+	dropSQL.WriteString("SET FOREIGN_KEY_CHECKS=0;\n") // disable FK checks
+	for _, t := range tables {
+		dropSQL.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS `%s`;\n", t))
+	}
+	dropSQL.WriteString("SET FOREIGN_KEY_CHECKS=1;\n") // re-enable FK checks
+
+	// Step 4: run DROP TABLE commands
+	args = []string{
+		"-h", m.Host,
+		"-P", m.Port,
+		"-u", m.User,
+		fmt.Sprintf("--password=%s", m.Password),
+		m.Database,
+	}
+
+	cmd = exec.CommandContext(ctx, "mysql", args...)
+	cmd.Stdin = strings.NewReader(dropSQL.String())
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to drop tables: %w", err)
+	}
+
+	return nil
 }
