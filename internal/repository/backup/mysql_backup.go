@@ -130,38 +130,53 @@ func (m MySqlBackup) Dump(ctx context.Context) (string, error) {
 func (m MySqlBackup) Restore(ctx context.Context, reader io.ReadCloser) error {
 	defer reader.Close()
 
-	// wrap with gzip
-	gzr, err := gzip.NewReader(reader)
-	if err != nil {
-		return fmt.Errorf("failed to open gzip: %w", err)
+	// Peek first few bytes to detect gzip
+	buf := make([]byte, 512)
+	n, err := reader.Read(buf)
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("failed to read input: %w", err)
 	}
-	defer gzr.Close()
+	peek := buf[:n]
 
-	// wrap with tar
-	tr := tar.NewReader(gzr)
+	// Create a reader that includes the peeked bytes
+	fullReader := io.MultiReader(bytes.NewReader(peek), reader)
 
-	// find first .sql file in archive
-	var sqlPipeReader, sqlPipeWriter = io.Pipe()
+	var sqlReader io.Reader
 
-	go func() {
-		defer sqlPipeWriter.Close()
+	if n >= 2 && peek[0] == 0x1f && peek[1] == 0x8b {
+		// gzip detected
+		gzr, err := gzip.NewReader(fullReader)
+		if err != nil {
+			return fmt.Errorf("failed to open gzip: %w", err)
+		}
+		defer gzr.Close()
+
+		tr := tar.NewReader(gzr)
+		found := false
 
 		for {
 			hdr, err := tr.Next()
 			if err != nil {
-				break // end of tar
-			}
-
-			if filepath.Ext(hdr.Name) == ".sql" {
-				// copy SQL content into pipe
-				if _, err := io.Copy(sqlPipeWriter, tr); err != nil {
-					sqlPipeWriter.CloseWithError(fmt.Errorf("failed to copy sql content: %w", err))
-					return
+				if err == io.EOF {
+					break
 				}
+				return fmt.Errorf("failed to read tar: %w", err)
+			}
+			if filepath.Ext(hdr.Name) == ".sql" {
+				// found SQL file
+				sqlReader = tr
+				found = true
 				break
 			}
 		}
-	}()
+
+		if !found {
+			return fmt.Errorf("no .sql file found in tar archive")
+		}
+	} else {
+		// plain SQL file
+		sqlReader = fullReader
+	}
 
 	// prepare mysql restore command
 	args := []string{
@@ -173,7 +188,7 @@ func (m MySqlBackup) Restore(ctx context.Context, reader io.ReadCloser) error {
 	}
 
 	cmd := exec.CommandContext(ctx, "mysql", args...)
-	cmd.Stdin = sqlPipeReader
+	cmd.Stdin = sqlReader
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
