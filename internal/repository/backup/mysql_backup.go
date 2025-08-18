@@ -19,7 +19,7 @@ type MySqlBackup struct {
 	Database string
 }
 
-func (m MySqlBackup) Dump(ctx context.Context, opt ...DumpDbOpts) (string, error) {
+func (m MySqlBackup) Dump(ctx context.Context) (string, error) {
 	// final tar.gz file
 	filename := fmt.Sprintf("%s_%s.tar.gz", m.Database, time.Now().Format("20060102_150405"))
 	outputPath := filepath.Join(".", filename)
