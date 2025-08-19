@@ -6,6 +6,13 @@ mysql:
   database: "db"
 
 rclone:
+
+  # rclone host (without auth)
   host: "http://localhost:5572"
+
+  # remote file system that previously configured on RClone,
+  # for this example, s3 is the configuration name and mybucket is the s3 bucket name.
   fs: "s3:mybucket"
+
+  # remote path
   remote: "db-backup"
