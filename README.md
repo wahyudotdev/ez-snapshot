@@ -1,8 +1,13 @@
-# EZ Snapshot
+# EZ-Snapshot
 
 A simple Go-based CLI tool that wraps [`mysqldump`](https://dev.mysql.com/doc/refman/8.0/en/mysqldump.html) and [
 `rclone`](https://rclone.org/) to provide easy database backup and restore operations.  
 It is designed to help you back up MySQL databases to remote storage (e.g., S3, GCS, local FS) using rclone.
+
+> **Warning**  
+> This tools is not production ready since it is using mysqldump under the hood 
+> that are known to be slow and intended only for development purpose.
+
 
 ## Features
 
