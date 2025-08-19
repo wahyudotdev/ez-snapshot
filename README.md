@@ -5,9 +5,8 @@ A simple Go-based CLI tool that wraps [`mysqldump`](https://dev.mysql.com/doc/re
 It is designed to help you back up MySQL databases to remote storage (e.g., S3, GCS, local FS) using rclone.
 
 > **Warning**  
-> This tools is not production ready since it is using mysqldump under the hood 
+> This tools is not production ready since it is using mysqldump under the hood
 > that are known to be slow and intended only for development purpose.
-
 
 ## Features
 
@@ -28,22 +27,62 @@ It is designed to help you back up MySQL databases to remote storage (e.g., S3, 
 
 ## Installation
 
-Clone and build:
+### Build from source
 
 ```shell
 git clone https://github.com/wahyudotdev/ez-snapshot.git
 cd ez-snapshot
-go build cmd/main.go
-chmod +x main
-./main
+
+# build binary
+go build -o ez-snapshot cmd/main.go
+
+# move to bin folder so it can be executed anywhere
+sudo mv ez-snapshot /usr/local/bin/ez-snapshot
+sudo chmod +x /usr/local/bin/ez-snapshot
+
+# copy the config files
+mkdir ~/.config/ez-snapshot
+cp config.example.yaml ~/.config/ez-snapshot/config.yaml
+
+# run the binary
+ez-snapshot --help
 ```
 
 ## How to use
 
-1. Copy the config.example.yaml to config.yaml and adjust the mysql & rcloone configuration
-2. You need to configure the RClone first, go to the RClone documentation for complete guideline for each online storage.
-3. Run the binary, this will check for dependency and API connectivity to RClone. So make sure that you have run RClone
-   RC API before.
+Make sure that you have followed the installation instruction above
+
+1. Copy the config.example.yaml to config.yaml and adjust the mysql & rclone configuration. You can also place the
+   configuration under ```$HOME/.config/ez-snapshot/config.yaml```.
+2. You need to configure the RClone first, go to the RClone documentation for complete guideline for each online
+   storage.
+3. Run RClone RC API server
+4. Run the binary by using ```ez-snapshot``` command, this will check for dependency and API connectivity to RClone.
+
+## Configuration File
+
+You should place it under ~/.config/ez-snapshot/config.yaml so it can be automatically read by ez-snapshot process
+
+| Key              | Explanation                                                    |
+|------------------|----------------------------------------------------------------|
+| `mysql.host`     | `127.0.0.1` (MySQL Host)                                       |
+| `mysql.port`     | `3306` (MySQL Port)                                            |
+| `mysql.username` | `root` (MySQL username)                                        |
+| `mysql.password` | `password` (MySQL password)                                    |
+| `mysql.database` | `db` (MySQL DB schema         )                                |
+| `rclone.host`    | `http://localhost:5572` (rclone API host, no auth)             |
+| `rclone.fs`      | `s3:mybucket` → `s3` = rclone remote, `mybucket` = bucket name |
+| `rclone.remote`  | `db-backup` remote path. Backup files would be stored here     |
+
+## Non-Interactive CLI
+
+You could also use non-interactive CLI to execute ```backup``` and ```restore``` command directly, that will be
+useful for cron-job setup. Example crontab configuration
+
+```text
+# run backup every 00.00 AM
+0 0 * * * /usr/local/bin/ez-snapshot --backup
+```
 
 ## Project Roadmap
 
@@ -57,3 +96,4 @@ chmod +x main
 - ⌛️ Support PostgresQL backup and restore
 - ⌛️ Single binary release (homebrew / snap)
 - ⌛️ Support RClone basic auth
+- ⌛ Provide file encryption support
