@@ -52,8 +52,8 @@ chmod +x main
 - ✅ Support db restore for both .tar.gz and .sql file
 - ✅ Support multiple storage using rclone
 - ✅ Support MySQL backup and restore
+- ✅️ Support non-interactive CLI
 - ⌛️ Support scheduled backup (daemon mode)
-- ⌛️ Support manual backup non-interactive CLI (for linux crontab)
 - ⌛️ Support PostgresQL backup and restore
 - ⌛️ Single binary release (homebrew / snap)
 - ⌛️ Support RClone basic auth
